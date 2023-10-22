@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OGL Mouse Trail</title>
+    <style>
+        :root {
+            overflow: hidden;
+            height: 100%;
+        }
+
+        body {
+            margin: 0;
+        }
+    </style>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <button style="right: 65%" id="addLine" class="ui">Add Line</button>
+    <button style="right: 40%" id="removeLine" class="ui">Remove Line</button>
+    <button style="right: 50%" id="randomColor" class="ui">Random Background Color</button>
+
+    <script type="module">
+
+        import {
+            Renderer,
+            Camera,
+            Orbit,
+            Transform,
+            Geometry,
+            Vec3,
+            Color,
+            Polyline
+        } from "https://cdn.jsdelivr.net/npm/ogl@0.0.32/dist/ogl.mjs";//from "../../OGL/index.js";
+
+        /*
+        ***************************************************************************************************************************
+        Code built upon the work of Nathan Gordon: https://tympanus.net/codrops/2019/09/24/crafting-stylised-mouse-trails-with-ogl/
+        ***************************************************************************************************************************
+        */
+
+        const vertex = `
+            attribute vec3 position;
+            attribute vec3 next;
+            attribute vec3 prev;
+            attribute vec2 uv;
+            attribute float side;
+            uniform vec2 uResolution;
+            uniform float uDPR;
+            uniform float uThickness;
+            vec4 getPosition() {
+                vec2 aspect = vec2(uResolution.x / uResolution.y, 1);
+                vec2 nextScreen = next.xy * aspect;
+                vec2 prevScreen = prev.xy * aspect;
+                // determine the direction from the previous to the next point
+                vec2 tangent = normalize(nextScreen - prevScreen);
+                // rotate it 90 degrees to find the normal
+                vec2 normal = vec2(-tangent.y, tangent.x);
+                normal /= aspect;
+                // line's width, without this, the line width = whole screen
+
+                normal *= 1.0 - pow(abs(uv.y - 0.5) * 2.0, 2.0);
+                float pixelWidth = 1.0 / (uResolution.y / uDPR);
+                normal *= pixelWidth * uThickness;
+                // When the points are on top of each other,
+                // shrink the line to avoid artifacts.
+                float dist = length(nextScreen - prevScreen);
+                normal *= smoothstep(0.0, 0.02, dist);
+                vec4 current = vec4(position, 1);
+                // push our vertices apart along the normal
+                current.xy -= normal * side;
+                return current;
+            }
+            void main() {
+                gl_Position = getPosition();
+            }
+        `;
+        let lineAmount = 3;
+
+        let addButton = document.getElementById("addLine");
+        let removeButton = document.getElementById("removeLine");
+        let randomBGColorButton = document.getElementById("randomColor");
+
+        addButton.addEventListener("click", addLine);
+        removeButton.addEventListener("click", removeLine);
+        randomBGColorButton.addEventListener("click", getRandomBGColor);
+
+        let randomColors = ["#e09f7d", "#ef5d60", "#ec4067", "#a01a7d", "#311847", "#FF9AA2",
+            "#C7CEEA", "#FFDAC1", "#B5EAD7", "#C8C4E8", "#8DD8FF", "#FF677B",
+            "#8192A6", "#BB8188", "#75D0FF", "#6BDEE8", "#6BE8AC", "#FCFFF5",
+            "#CBDBD7", "#91AAC4", "#193441", "#3E606F", "#17162F", "#89346D",
+            "#C76058", "#FFB248", "#E8C475", "#C78C5D", "#8EB5FB", "#715DC7"];
+
+        let stormyColors = ["#989BA2", "#1A2328", "#4A535A", "#80878F", "#D8D5CC",
+            "#191726", "#394159", "#6581A6", "#BFBFBF", "#8C8C8C", "#404040",
+            "#262626", "#0D0D0D", "#92A1AA", "#9AACBA", "#C4CDD8", "#626B73",
+            "#9CA5A6", "#65768C", "#384D59", "#243540", "#A9B9D9", "#485059",
+            "#2E4559", "#6889A6", "#ADC5D9"];
+
+        let tropicalColors = ["#2A4FFF", "#277BE8", "#37C3FF", "#27E1E8", "#27E1E8",
+            "#2AFFCC", "#E8BF05", "#F67300", "#FFFFE8", "#B21236", "#F03812",
+            "#FE8826", "#FEB914", "#2C9FA2", "#2384D9", "#2EA7F2", "#35DFF2",
+            "#1D5902", "#F2B90C", "#FFAB2E", "#A32E27", "#004531", "#FF3F9D",
+            "#F56433", "#07D9B2", "#04D99D", "#DAF2C2", "#F2DB66", "#023859"];
+
+        let leatherColors = ["#EFB8A5", "#734136", "#DD9B7F", "#401B17", "#8C524D",
+            "#261917", "#402E2C", "#733F2D", "#592C22", "#8C564A", "#401D1A",
+            "#E5B48B", "#C76B3D", "#AC502C", "#82533B", "#401910", "#59362E",
+            "#260401", "#BFA095", "#8C6F65", "#BF784E", "#D99F7E", "#734432",
+            "#402921"];
+
+        let neonColors = ["#FF19C0", "#00FEFF", "#E0FB3D", "#ACF838", "#FF5833",
+            "#E83696", "#05F240", "#D92567", "#EE05F2", "#A303A6", "#EBF222",
+            "#F2059F", "#F205CB", "#22F2F2", "#F277D1", "#16B4F2", "#F20587",
+            "#F2059F", "#F205B3", "#049DD9"];
+
+        let pastelColors = ["#FEC7BC", "#F0ABAA", "#FCC7DC", "#E5AADE", "#F1BCFE",
+            "#F2D5DD", "#F2AEC7", "#E8C2F2", "#E8D0F2", "#C2F2F2", "#FFB3BA",
+            "#FFFFBA", "#BAFFC9", "#BAE1FF", "#EDA0FF", "#C4ADFF", "#A0B7FF",
+            "#9291E8", "#A8E6CF", "#DCEDC1", "#FFD3B6", "#FFAAA5", "#FF8B94",
+            "#CEF2F2", "#F2DCD8"];
+
+        let monotoneColors = ["#172126", "#4F5859", "#8B8C8C", "#D8D9D7", "#F2F2F0",
+            "#F2F2F2", "#A6A6A6", "#737373", "#404040", "#0D0D0D", "#737373",
+            "#A6A6A6", "#BFBFBF", "#BFBFBF"];
+
+
+            let colors = randomColors;
+
+        let isRainbowBG = false;
+
+        // some colors from a pallete made by Chan Alex
+        // https://color.adobe.com/search?q=storm&t=tag
+
+        let buttonsHidden = true;
+        let rSubtract = false;
+        let gSubtract = false;
+        let bSubtract = false;
+
+        let currrentColorType = 1;      // 1 = random, 2 = stormy, 3 = tropical, 4 = leather
+
+        function getRandomBGColor(event) {
+
+            event.preventDefault();
+
+            for (let i = 0; i < rgb.length; i++) {
+                rgb[i] = Math.random();
+            }
+            gl.clearColor(rgb[0], rgb[1], rgb[2], 1);
+        }
+
+        function addLine(event) {
+
+            event.preventDefault();
+
+            //alert("add line button clicked");
+            if (lineAmount < 20) {
+
+                lineAmount++;
+                //testing
+                const line = {
+                    spring: random(0.02, 0.1),
+                    friction: random(0.7, 0.95),
+                    mouseVelocity: new Vec3(),
+                    mouseOffset: new Vec3(random(-1, 1) * 0.02)
+                };
+
+                // Create an array of Vec3s (eg [[0, 0, 0], ...])
+                const count = 20;
+                const points = (line.points = []);
+                let randColor = colors[Math.floor(Math.random() * colors.length)];
+                for (let i = 0; i < count; i++) points.push(new Vec3());
+
+                if (colors == randomColors) {
+
+                    let totallyRandomColorChance = Math.floor(Math.random() * 10);
+
+                    if (totallyRandomColorChance <= 4) {
+                        let hexVal = Math.floor(Math.random() * 0xFFFFFF);
+
+                        let randColor = "#" + hexVal.toString(16);
+
+                        console.log(typeof (randColor));
+                        console.log("generating totally random color");
+                    }
+                }
+
+
+                line.polyline = new Polyline(gl, {
+                    points,
+                    vertex,
+                    uniforms: {
+                        //uColor: { value: new Color(randColor) },
+                        uColor: { value: new Color(randColor) },
+                        uThickness: { value: random(20, 50) }
+                    }
+                });
+
+                line.polyline.mesh.setParent(scene);
+
+                lines.push(line);
+
+            }
+        }
+
+        function removeLine(event) {
+
+            event.preventDefault();
+
+            //alert("REMOVE line button clicked");
+            if (lineAmount > 0) {
+                lineAmount--;
+                //line.polyline.mesh.setParent(scene);
+                console.log(lines);
+                //let templine = lines.pop();
+                //scene.removeChild(lines.length - 1);
+                let lastLine = lines[lines.length - 1];
+                scene.removeChild(lastLine.polyline.mesh)
+                lines.pop();
+                console.log(lastLine);
+                console.log(lines);
+            }
+
+        }
+
+        // WALLPAPER ENGINE CODE:
+        // Read changes made by users
+        window.wallpaperPropertyListener = {
+            applyUserProperties: function (properties) {
+
+
+                if (properties.wpelineslider) {
+                    let newLines = properties.wpelineslider.value;
+
+                    if (newLines > lineAmount) {
+                        addLines(newLines);
+                    }
+                    else if (newLines < lineAmount) {
+                        removeLines(newLines);
+                    }
+                }
+
+                if (properties.wpebgcolor) {
+
+                    // split into array of substrings
+                    let arrayStringOfRGB = properties.wpebgcolor.value.split(" ");
+
+                    for (let i = 0; i < arrayStringOfRGB.length; i++) {
+                        // converting strings to floats
+                        rgb[i] = parseFloat(arrayStringOfRGB[i]);
+                    }
+
+                    // setting color
+                    gl.clearColor(rgb[0], rgb[1], rgb[2], 1);
+                }
+
+                if (properties.showButtons) {
+                    if (properties.showButtons.value == true) {
+                        // hide buttons
+                        addButton.style.display = "block";
+                        removeButton.style.display = "block";
+                        randomBGColorButton.style.display = "block";
+                    }
+                    else {
+                        // unhide them
+                        addButton.style.display = "none";
+                        removeButton.style.display = "none";
+                        randomBGColorButton.style.display = "none";
+                    }
+                }
+
+                if (properties.rainbowMode) {
+                    if (properties.rainbowMode.value == true) {
+                        // enable rainbow
+                        isRainbowBG = true;
+                    }
+                    else {
+                        // disable rainbow
+                        isRainbowBG = false;
+                    }
+                }
+
+                if (properties.colorcombobox) {
+                    //var myComboValue = properties.customcombo.value;
+                    let userColorType = properties.colorcombobox.value;
+
+                    if (userColorType != currrentColorType) {
+                        changeLineColorType(userColorType);
+                    }
+                }
+
+            }
+        }
+
+        function changeLineColorType(chosenColorType) {
+            if (chosenColorType == 1) {
+                colors = randomColors;
+                currrentColorType = 1;
+                refreshLines();
+            }
+            else if (chosenColorType == 2) {
+                colors = stormyColors;
+                currrentColorType = 2;
+                refreshLines();
+            }
+            else if (chosenColorType == 3) {
+                colors = tropicalColors;
+                currrentColorType = 3;
+                refreshLines();
+            }
+            else if (chosenColorType == 4) {
+                colors = leatherColors;
+                currrentColorType = 4;
+                refreshLines();
+            }
+            else if (chosenColorType == 5) {
+                colors = neonColors;
+                currrentColorType = 5;
+                refreshLines();
+            } 
+            else if (chosenColorType == 6) {
+                colors = pastelColors;
+                currrentColorType = 6;
+                refreshLines();
+            }
+            else if (chosenColorType == 7) {
+                colors = monotoneColors;
+                currrentColorType = 7;
+                refreshLines();
+            }
+        }
+
+        function refreshLines() {
+
+            let oldLineAmount = lineAmount;
+
+            // delete all lines
+            while (lineAmount > 0) {
+                lineAmount--;
+                //line.polyline.mesh.setParent(scene);
+                console.log(lines);
+                //let templine = lines.pop();
+                //scene.removeChild(lines.length - 1);
+                let lastLine = lines[lines.length - 1];
+                scene.removeChild(lastLine.polyline.mesh)
+                lines.pop();
+                console.log(lastLine);
+                console.log(lines);
+            }
+
+            // recreate all new lines using the color type set
+
+            while (lineAmount < oldLineAmount) {
+
+                lineAmount++;
+                const line = {
+                    spring: random(0.02, 0.1),
+                    friction: random(0.7, 0.95),
+                    mouseVelocity: new Vec3(),
+                    mouseOffset: new Vec3(random(-1, 1) * 0.02)
+                };
+
+                // Create an array of Vec3s (eg [[0, 0, 0], ...])
+                const count = 20;
+                const points = (line.points = []);
+                let randColor = colors[Math.floor(Math.random() * colors.length)];
+                for (let i = 0; i < count; i++) points.push(new Vec3());
+
+                if (colors == randomColors) {
+
+                    let totallyRandomColorChance = Math.floor(Math.random() * 10);
+
+                    if (totallyRandomColorChance <= 4) {
+                        let hexVal = Math.floor(Math.random() * 0xFFFFFF);
+
+                        let randColor = "#" + hexVal.toString(16);
+
+                        console.log(typeof (randColor));
+                        console.log("generating totally random color");
+                    }
+                }
+
+                line.polyline = new Polyline(gl, {
+                    points,
+                    vertex,
+                    uniforms: {
+                        //uColor: { value: new Color(randColor) },
+                        uColor: { value: new Color(randColor) },
+                        uThickness: { value: random(20, 50) }
+                    }
+                });
+
+                line.polyline.mesh.setParent(scene);
+
+                lines.push(line);
+
+            }
+
+        }
+
+        // adding multiple lines
+        function addLines(newLineAmount) {
+
+            while (lineAmount < newLineAmount) {
+
+                lineAmount++;
+                const line = {
+                    spring: random(0.02, 0.1),
+                    friction: random(0.7, 0.95),
+                    mouseVelocity: new Vec3(),
+                    mouseOffset: new Vec3(random(-1, 1) * 0.02)
+                };
+
+                // Create an array of Vec3s (eg [[0, 0, 0], ...])
+                const count = 20;
+                const points = (line.points = []);
+                let randColor = colors[Math.floor(Math.random() * colors.length)];
+                for (let i = 0; i < count; i++) points.push(new Vec3());
+
+                if (colors == randomColors) {
+
+                    let totallyRandomColorChance = Math.floor(Math.random() * 10);
+
+                    if (totallyRandomColorChance <= 4) {
+                        let hexVal = Math.floor(Math.random() * 0xFFFFFF);
+
+                        let randColor = "#" + hexVal.toString(16);
+
+                        console.log(typeof (randColor));
+                        console.log("generating totally random color");
+                    }
+                }
+
+                console.log(randColor);
+
+                line.polyline = new Polyline(gl, {
+                    points,
+                    vertex,
+                    uniforms: {
+                        //uColor: { value: new Color(randColor) },
+                        uColor: { value: new Color(randColor) },
+                        uThickness: { value: random(20, 50) }
+                    }
+                });
+
+                line.polyline.mesh.setParent(scene);
+
+                lines.push(line);
+
+            }
+        }
+
+        // remove multiple lines
+        function removeLines(newLineAmount) {
+
+            // runs if there is more lines than newLineAmount
+            while (lineAmount > newLineAmount) {
+
+                lineAmount--;
+                let lastLine = lines[lines.length - 1];
+                scene.removeChild(lastLine.polyline.mesh)
+                lines.pop();
+
+            }
+
+        }
+
+
+
+
+        // Create the WebGL context, and add the canvas to the DOM
+        const renderer = new Renderer({ dpr: 2 });
+        const gl = renderer.gl;
+        document.body.appendChild(gl.canvas);
+        let rgb = [0.3, 0.05, 0.1]
+
+        //gl.clearColor(0.3, 0.05, 0.1, 1);
+        gl.clearColor(rgb[0], rgb[1], rgb[2], 1);
+
+
+        // Create camera and scene
+        //const camera = new Camera(gl);
+        //camera.position.z = 3;
+
+        //const controls = new Orbit(camera);
+
+        const scene = new Transform();
+        //let polyline;
+        let lines = [];
+
+        function resize() {
+            renderer.setSize(window.innerWidth, window.innerHeight);
+
+            // We call resize on the polylines to update their resolution uniforms
+            lines.forEach(line => line.polyline.resize());
+        }
+        window.addEventListener("resize", resize, false);
+
+        function random(a, b) {
+            const alpha = Math.random();
+            return a * (1.0 - alpha) + b * alpha;
+        }
+
+        let tempLineAmount = lineAmount;
+
+        // We're going to make a number of different coloured lines for fun.
+        colors.forEach(
+            (color, i) => {
+
+                if (i < tempLineAmount) {
+                    // Store a few values for each lines' randomised spring movement
+                    const line = {
+                        spring: random(0.02, 0.1),
+                        friction: random(0.7, 0.95),
+                        mouseVelocity: new Vec3(),
+                        mouseOffset: new Vec3(random(-1, 1) * 0.02)
+                    };
+
+                    // Create an array of Vec3s (eg [[0, 0, 0], ...])
+                    const count = 20;
+                    const points = (line.points = []);
+                    for (let i = 0; i < count; i++) points.push(new Vec3());
+
+                    line.polyline = new Polyline(gl, {
+                        points,
+                        vertex,
+                        uniforms: {
+                            uColor: { value: new Color(colors[Math.floor(Math.random() * colors.length)]) },
+                            uThickness: { value: random(20, 50) }
+                        }
+                    });
+
+                    line.polyline.mesh.setParent(scene);
+
+                    lines.push(line);
+                }
+
+            });
+
+        // Call initial resize after creating the polyline to update
+        // its resolution uniforms
+        resize();
+
+        // Add handlers to get mouse position
+        const mouse = new Vec3();
+        if ("ontouchstart" in window) {
+            window.addEventListener("touchstart", updateMouse, false);
+            window.addEventListener("touchmove", updateMouse, false);
+        } else {
+            window.addEventListener("mousemove", updateMouse, false);
+        }
+
+        function updateMouse(e) {
+            if (e.changedTouches && e.changedTouches.length) {
+                e.x = e.changedTouches[0].pageX;
+                e.y = e.changedTouches[0].pageY;
+            }
+            if (e.x === undefined) {
+                e.x = e.pageX;
+                e.y = e.pageY;
+            }
+
+            // Get mouse value in -1 to 1 range, with y flipped
+            mouse.set(
+                (e.x / gl.renderer.width) * 2 - 1,
+                (e.y / gl.renderer.height) * -2 + 1,
+                0
+            );
+        }
+
+        const tmp = new Vec3();
+
+        // render scene in an update loop
+        requestAnimationFrame(update);
+        function update(t) {
+            requestAnimationFrame(update);
+
+            // Update polyline input points
+            lines.forEach(line => {
+                // Update polyline input points
+                for (let i = line.points.length - 1; i >= 0; i--) {
+                    if (!i) {
+                        // For the first point, spring ease it to the mouse position
+                        tmp
+                            .copy(mouse)
+                            .add(line.mouseOffset)
+                            .sub(line.points[i])
+                            .multiply(line.spring);
+                        line.mouseVelocity.add(tmp).multiply(line.friction);
+                        line.points[i].add(line.mouseVelocity);
+                    } else {
+                        // The rest of the points ease to the point in front of them, making a line
+                        line.points[i].lerp(line.points[i - 1], 0.9);
+                    }
+                }
+                line.polyline.updateGeometry();
+            });
+
+            if (isRainbowBG == true) {
+                makeBackgroundRainbow();
+            }
+
+            renderer.render({ scene });
+        }
+
+        function makeBackgroundRainbow() {
+            if ((rgb[0] + 0.003) > 1 && rSubtract == false) {
+                    rSubtract = true;
+                }
+                else if ((rgb[0] - 0.003) < 0 && rSubtract == true) {
+                    rSubtract = false;
+                }
+
+                if ((rgb[1] + 0.005) > 1 && gSubtract == false) {
+                    gSubtract = true;
+                }
+                else if ((rgb[1] - 0.005) < 0 && gSubtract == true) {
+                    gSubtract = false;
+                }
+
+                if ((rgb[2] + 0.008) > 1 && bSubtract == false) {
+                    bSubtract = true;
+                }
+                else if ((rgb[2] - 0.008) < 0 && bSubtract == true) {
+                    bSubtract = false;
+                }
+                // do adding or subtracting
+                if (rSubtract == true) {
+                    rgb[0] = rgb[0] - 0.003;
+                } else {
+                    rgb[0] = rgb[0] + 0.003;
+                }
+
+                if (gSubtract == true) {
+                    rgb[1] = rgb[1] - 0.005;
+                } else {
+                    rgb[1] = rgb[1] + 0.005;
+                }
+
+                if (bSubtract == true) {
+                    rgb[2] = rgb[2] - 0.008;
+                } else {
+                    rgb[2] = rgb[2] + 0.008;
+                }
+
+                gl.clearColor(rgb[0], rgb[1], rgb[2], 1);
+        }
+
+    </script>
+</body>
+
+</html>
